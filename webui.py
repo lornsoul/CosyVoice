@@ -39,12 +39,11 @@ max_val = 0.8
 # 设置说话人名称
 speaker = '穗'
 # 设置说话人信息文件的路径
-spk2info_path = f'pretrained_models/CosyVoice2-0.5B/spk2info.pt'
+model_path='pretrained_models/CosyVoice2-0.5B'
+# model_path='pretrained_models/Fun-CosyVoice3-0.5B'
+spk2info_path = f'{model_path}/spk2info.pt'
 # 设置提示文本
 prompt_text = "我知道，那件事之后，良爷可能觉得有些事都是老天定的，人怎么做都没用，但我觉得不是这样的。"
-prompt_texts = {
-    '穗': "我知道，那件事之后，良爷可能觉得有些事都是老天定的，人怎么做都没用，但我觉得不是这样的。",
-}
 
 # 定义一个文本到语音的函数，参数包括文本内容、是否流式处理、语速和是否使用文本前端处理
 def tts_sft(tts_text, speaker, stream=False, speed=1.0, text_frontend=True):
@@ -64,19 +63,15 @@ def tts_sft(tts_text, speaker, stream=False, speed=1.0, text_frontend=True):
     for i in tqdm(cosyvoice.frontend.text_normalize(tts_text, split=True, text_frontend=text_frontend)):
         # 提取文本的token和长度
         tts_text_token, tts_text_token_len = cosyvoice.frontend._extract_text_token(i)
-        # 获取说话人的语音token长度，并转换为torch张量，移动到指定设备
-        speech_token_len = torch.tensor([speaker_info['speech_token'].shape[1]], dtype=torch.int32).to(cosyvoice.frontend.device)
-        # 获取说话人的语音特征长度，并转换为torch张量，移动到指定设备
-        speech_feat_len = torch.tensor([speaker_info['speech_feat'].shape[1]], dtype=torch.int32).to(cosyvoice.frontend.device)
         # 构建模型输入字典，包括文本、文本长度、提示文本、提示文本长度、LLM提示语音token、LLM提示语音token长度、流提示语音token、流提示语音token长度、提示语音特征、提示语音特征长度、LLM嵌入和流嵌入
-        model_input = {'text': tts_text_token, 'text_len': tts_text_token_len,
-                       'llm_prompt_speech_token': speaker_info['speech_token'], 'llm_prompt_speech_token_len': speech_token_len,
-                       'flow_prompt_speech_token':speaker_info['speech_token'], 'flow_prompt_speech_token_len': speech_token_len,
-                       'prompt_speech_feat': speaker_info['speech_feat'], 'prompt_speech_feat_len': speech_feat_len,
-                       'llm_embedding': speaker_info['embedding'], 'flow_embedding': speaker_info['embedding']}
-        if speaker_info.get('prompt_token') is not None:
-            model_input['prompt_text_token'] = speaker_info['prompt_token']
-            model_input['prompt_text_token_len'] = torch.tensor([speaker_info['prompt_token'].shape[1]], dtype=torch.int32).to(cosyvoice.frontend.device)
+        model_input = {'text': tts_text_token, 
+                       'text_len': tts_text_token_len,
+                       'llm_prompt_speech_token': speaker_info['speech_token'], 
+                       'flow_prompt_speech_token':speaker_info['speech_token'],
+                       'prompt_speech_feat': speaker_info['speech_feat'], 
+                       'llm_embedding': speaker_info['embedding'], 
+                       'flow_embedding': speaker_info['embedding'],
+                       'prompt_text': speaker_info['prompt_token'],}
         
         # 使用模型进行文本到语音的转换，并迭代输出结果
         for model_output in cosyvoice.model.tts(**model_input, stream=stream, speed=speed):
@@ -122,8 +117,8 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
         if prompt_wav is None:
             gr.Warning('prompt音频为空，您是否忘记输入prompt音频？')
             yield (cosyvoice.sample_rate, default_data)
-        if torchaudio.info(prompt_wav).sample_rate < prompt_sr:
-            gr.Warning('prompt音频采样率{}低于{}'.format(torchaudio.info(prompt_wav).sample_rate, prompt_sr))
+        if torchaudio.info(prompt_wav).sample_rate < prompt_sr: # type: ignore
+            gr.Warning('prompt音频采样率{}低于{}'.format(torchaudio.info(prompt_wav).sample_rate, prompt_sr)) # type: ignore
             yield (cosyvoice.sample_rate, default_data)
     # sft mode only use sft_dropdown
     if mode_checkbox_group in ['预训练音色']:
@@ -143,10 +138,12 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
     if mode_checkbox_group == '预训练音色':
         logging.info('get sft inference request')
         set_all_random_seed(seed)
-        # for i in cosyvoice.inference_sft(tts_text, sft_dropdown, stream=stream, speed=speed):
-        #     yield (cosyvoice.sample_rate, i['tts_speech'].numpy().flatten())
-        for i in tts_sft(tts_text, sft_dropdown, stream=stream, speed=speed):
-            yield (cosyvoice.sample_rate, i['tts_speech'].numpy().flatten())
+        if cosyvoice.frontend.spk2info[sft_dropdown].get('prompt_token') is None:
+            for i in cosyvoice.inference_sft(tts_text, sft_dropdown, stream=stream, speed=speed):
+                yield (cosyvoice.sample_rate, i['tts_speech'].numpy().flatten())
+        else:
+            for i in tts_sft(tts_text, sft_dropdown, stream=stream, speed=speed):
+                yield (cosyvoice.sample_rate, i['tts_speech'].numpy().flatten())
     elif mode_checkbox_group == '3s极速复刻':
         logging.info('get zero_shot inference request')
         set_all_random_seed(seed)
@@ -210,8 +207,7 @@ if __name__ == '__main__':
                         default=8000)
     parser.add_argument('--model_dir',
                         type=str,
-                        # default='pretrained_models/Fun-CosyVoice3-0.5B',
-                        default='pretrained_models/CosyVoice2-0.5B',
+                        default=model_path,
                         help='local path or modelscope repo id')
     args = parser.parse_args()
     cosyvoice = AutoModel(model_dir=args.model_dir)
@@ -226,7 +222,7 @@ if __name__ == '__main__':
     if os.path.exists(spk2info_path):
         spk2info = torch.load(
             spk2info_path, map_location=cosyvoice.frontend.device)
-        print(spk2info)
+        print(spk2info.keys())
     else:
         spk2info = {}
 
@@ -242,7 +238,7 @@ if __name__ == '__main__':
         # 获取语音token
         speech_token, speech_token_len = cosyvoice.frontend._extract_speech_token(prompt_wav)
         # 提取提示文本的token和长度
-        prompt_token, prompt_token_len = cosyvoice.frontend._extract_text_token(prompt_texts[speaker])
+        prompt_token, prompt_token_len = cosyvoice.frontend._extract_text_token(prompt_text)
         # 将音色embedding、语音特征和语音token保存到字典中
         spk2info[speaker] = {'embedding': embedding,
                             'speech_feat': speech_feat, 
