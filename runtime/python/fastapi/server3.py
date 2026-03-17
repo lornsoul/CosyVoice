@@ -213,6 +213,6 @@ if __name__ == "__main__":
         help="local path or modelscope repo id",
     )
     args = parser.parse_args()
-    cosyvoice = CosyVoice3(model_dir=args.model_dir)
+    cosyvoice = CosyVoice3(model_dir=args.model_dir, load_trt=True, fp16=True)
     print('Available speakers:', cosyvoice.frontend.spk2info.keys())
     uvicorn.run(app, host="0.0.0.0", port=args.port)

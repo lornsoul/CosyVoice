@@ -37,14 +37,15 @@ instruct_dict = {'预训练音色': '1. 选择预训练音色\n2. 点击生成�
 stream_mode_list = [('否', False), ('是', True)]
 max_val = 0.8
 # 设置说话人名称
-speaker = '穗'
+speakers = ["穗", "安比"]
 # 设置说话人信息文件的路径
-# model_path='pretrained_models/CosyVoice2-0.5B'
 model_path='pretrained_models/Fun-CosyVoice3-0.5B'
 spk2info_path = f'{model_path}/spk2info.pt'
 # 设置提示文本
-prompt_text = "我知道，那件事之后，良爷可能觉得有些事都是老天定的，人怎么做都没用，但我觉得不是这样的。"
-prompt_text3 = "You are a helpful assistant.<|endofprompt|>我知道，那件事之后，良爷可能觉得有些事都是老天定的，人怎么做都没用，但我觉得不是这样的。"
+prompt_texts = {
+    "穗": "You are a helpful assistant.<|endofprompt|>我知道，那件事之后，良爷可能觉得有些事都是老天定的，人怎么做都没用，但我觉得不是这样的。",
+    "安比": "You are a helpful assistant.<|endofprompt|>我在听插曲，电影里，一般不会有那么长的空镜头"
+}
 
 # 定义一个文本到语音的函数，参数包括文本内容、是否流式处理、语速和是否使用文本前端处理
 def tts_sft(tts_text, speaker, stream=False, speed=1.0, text_frontend=True):
@@ -155,8 +156,7 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
                 yield (cosyvoice.sample_rate, i['tts_speech'].numpy().flatten())
         else:
             # for i in tts_sft(tts_text, sft_dropdown, stream=stream, speed=speed):
-            # for i in cosyvoice.inference_zero_shot(tts_text, '', '', sft_dropdown, stream=stream, speed=speed):
-            for i in cosyvoice.inference_instruct2(tts_text, '', '', sft_dropdown, stream=stream, speed=speed):
+            for i in cosyvoice.inference_zero_shot(tts_text, '', '', sft_dropdown, stream=stream, speed=speed):
                 yield (cosyvoice.sample_rate, i['tts_speech'].numpy().flatten())
     elif mode_checkbox_group == '3s极速复刻':
         logging.info('get zero_shot inference request')
@@ -213,40 +213,14 @@ def main():
     demo.queue(max_size=4, default_concurrency_limit=2)
     demo.launch(server_name='0.0.0.0', server_port=args.port)
 
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--port',
-                        type=int,
-                        default=8000)
-    parser.add_argument('--model_dir',
-                        type=str,
-                        default=model_path,
-                        help='local path or modelscope repo id')
-    args = parser.parse_args()
-    cosyvoice = CosyVoice3(model_dir=args.model_dir)
-    print(cosyvoice.frontend.spk2info.keys())
-
-    # 记录开始时间
-    start = time.time()
-
-    # 加载16kHz的提示语音
-    prompt_wav = f'{speaker}.wav'
-
-    # 如果说话人信息文件存在，则加载
-    if os.path.exists(spk2info_path):
-        spk2info = torch.load(
-            spk2info_path, map_location=cosyvoice.frontend.device)
-        print(spk2info.keys())
-    else:
-        spk2info = {}
-
-    # 想要重新生成当前说话人音频特征的取消以下注释
-    # if speaker in spk2info:
-    #    del spk2info[speaker]
+def add_speaker_info(speaker, spk2info):
+    if speaker in spk2info:
+       del spk2info[speaker]
 
     if speaker not in spk2info:
         print('Extracting speaker information for {}...'.format(speaker))
+        # 加载16kHz的提示语音
+        prompt_wav = f'{speaker}.wav'
         # 获取音色embedding
         embedding = cosyvoice.frontend._extract_spk_embedding(prompt_wav)
         # 获取语音特征
@@ -255,21 +229,13 @@ if __name__ == '__main__':
         speech_token, speech_token_len = cosyvoice.frontend._extract_speech_token(prompt_wav)
         # 提取提示文本的token和长度
         prompt_token, prompt_token_len = cosyvoice.frontend._extract_text_token(
-            cosyvoice.frontend.text_normalize(prompt_text3, split=False, text_frontend=True))
+            cosyvoice.frontend.text_normalize(prompt_texts[speaker], split=False, text_frontend=True))
         if cosyvoice.sample_rate == 24000:
             # cosyvoice2, force speech_feat % speech_token = 2
             token_len = min(int(speech_feat.shape[1] / 2), speech_token.shape[1])
             speech_feat, speech_feat_len[:] = speech_feat[:, :2 * token_len], 2 * token_len
             speech_token, speech_token_len[:] = speech_token[:, :token_len], token_len
         # 将音色embedding、语音特征和语音token保存到字典中
-        # spk2info[speaker] = {'embedding': embedding,
-        #                     'speech_feat': speech_feat, 
-        #                     'speech_feat_len': speech_feat_len,
-        #                     'speech_token': speech_token,
-        #                     'speech_token_len': speech_token_len,
-        #                     'prompt_token': prompt_token,
-        #                     'prompt_token_len': prompt_token_len,
-        #                     }
         spk2info[speaker] = {'embedding': embedding,
                         'speech_feat': speech_feat, 
                         'speech_feat_len': speech_feat_len,
@@ -288,7 +254,37 @@ if __name__ == '__main__':
                         'flow_embedding': embedding,
                         'prompt_text': prompt_token,
                         'prompt_text_len': prompt_token_len,}
+
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--port',
+                        type=int,
+                        default=8000)
+    parser.add_argument('--model_dir',
+                        type=str,
+                        default=model_path,
+                        help='local path or modelscope repo id')
+    args = parser.parse_args()
+    cosyvoice = CosyVoice3(model_dir=args.model_dir)
+    print(cosyvoice.frontend.spk2info.keys())
+
+    # 记录开始时间
+    start = time.time()
+
+    # 如果说话人信息文件存在，则加载
+    if os.path.exists(spk2info_path):
+        spk2info = torch.load(
+            spk2info_path, map_location=cosyvoice.frontend.device)
+    else:
+        spk2info = {}
+    
+    if False :
+        for speaker in speakers:
+            add_speaker_info(speaker, spk2info)
         torch.save(spk2info, spk2info_path)
+
     print('Load time:', time.time()-start)
 
     sft_spk = cosyvoice.list_available_spks()
