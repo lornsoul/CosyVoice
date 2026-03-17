@@ -30,7 +30,7 @@ import io
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append("{}/../../..".format(ROOT_DIR))
 sys.path.append("{}/../../../third_party/Matcha-TTS".format(ROOT_DIR))
-from cosyvoice.cli.cosyvoice import AutoModel
+from cosyvoice.cli.cosyvoice import CosyVoice3
 from cosyvoice.utils.file_utils import load_wav
 
 app = FastAPI()
@@ -103,7 +103,7 @@ async def inference_sft(tts_text: str = Form(), spk_id: str = Form()):
     if cosyvoice.frontend.spk2info[spk_id].get('prompt_token') is None:
         model_output = cosyvoice.inference_sft(tts_text, spk_id)
     else:
-        model_output = tts_sft(tts_text, spk_id)
+        model_output = cosyvoice.inference_zero_shot(tts_text, '', '', spk_id)
     return StreamingResponse(generate_data(model_output))
 
 
@@ -113,7 +113,7 @@ async def inference_sft_wav(tts_text: str = Form(), spk_id: str = Form()):
     if cosyvoice.frontend.spk2info[spk_id].get('prompt_token') is None:
         model_output = cosyvoice.inference_sft(tts_text, spk_id)
     else:
-        model_output = tts_sft(tts_text, spk_id)
+        model_output = cosyvoice.inference_zero_shot(tts_text, '', '', spk_id)
     return generate_wav_response(model_output)
 
 
@@ -209,10 +209,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_dir",
         type=str,
-        default="../../../pretrained_models/CosyVoice2-0.5B",
+        default="../../../pretrained_models/Fun-CosyVoice3-0.5B",
         help="local path or modelscope repo id",
     )
     args = parser.parse_args()
-    cosyvoice = AutoModel(model_dir=args.model_dir)
+    cosyvoice = CosyVoice3(model_dir=args.model_dir)
     print('Available speakers:', cosyvoice.frontend.spk2info.keys())
     uvicorn.run(app, host="0.0.0.0", port=args.port)

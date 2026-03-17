@@ -74,8 +74,8 @@ def tts_sft(tts_text, speaker, stream=False, speed=1.0, text_frontend=True):
         embedding = speaker_info['embedding']
         model_input = {'text': tts_text_token, 
                        'text_len': tts_text_token_len,
-                    #    'llm_prompt_speech_token': speech_token, 
-                    #    'llm_prompt_speech_token_len': speech_token_len,
+                       'llm_prompt_speech_token': speech_token, 
+                       'llm_prompt_speech_token_len': speech_token_len,
                        'flow_prompt_speech_token':speech_token,
                        'flow_prompt_speech_token_len':speech_token_len,
                        'prompt_speech_feat': speech_feat, 
@@ -154,6 +154,8 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
             for i in cosyvoice.inference_sft(tts_text, sft_dropdown, stream=stream, speed=speed):
                 yield (cosyvoice.sample_rate, i['tts_speech'].numpy().flatten())
         else:
+            # for i in tts_sft(tts_text, sft_dropdown, stream=stream, speed=speed):
+            # for i in cosyvoice.inference_zero_shot(tts_text, '', '', sft_dropdown, stream=stream, speed=speed):
             for i in cosyvoice.inference_instruct2(tts_text, '', '', sft_dropdown, stream=stream, speed=speed):
                 yield (cosyvoice.sample_rate, i['tts_speech'].numpy().flatten())
     elif mode_checkbox_group == '3s极速复刻':
@@ -169,7 +171,7 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
     else:
         logging.info('get instruct inference request')
         set_all_random_seed(seed)
-        for i in cosyvoice.inference_instruct(tts_text, sft_dropdown, instruct_text, stream=stream, speed=speed):
+        for i in cosyvoice.inference_instruct2(tts_text, instruct_text, prompt_wav, stream=stream, speed=speed):
             yield (cosyvoice.sample_rate, i['tts_speech'].numpy().flatten())
 
 
@@ -240,8 +242,8 @@ if __name__ == '__main__':
         spk2info = {}
 
     # 想要重新生成当前说话人音频特征的取消以下注释
-    if speaker in spk2info:
-       del spk2info[speaker]
+    # if speaker in spk2info:
+    #    del spk2info[speaker]
 
     if speaker not in spk2info:
         print('Extracting speaker information for {}...'.format(speaker))
@@ -252,23 +254,40 @@ if __name__ == '__main__':
         # 获取语音token
         speech_token, speech_token_len = cosyvoice.frontend._extract_speech_token(prompt_wav)
         # 提取提示文本的token和长度
-        # prompt_token, prompt_token_len = cosyvoice.frontend._extract_text_token(
-        #     cosyvoice.frontend.text_normalize(prompt_text3, split=False, text_frontend=True))
-        prompt_token, prompt_token_len = cosyvoice.frontend._extract_text_token("You are a helpful assistant.<|endofprompt|>")
+        prompt_token, prompt_token_len = cosyvoice.frontend._extract_text_token(
+            cosyvoice.frontend.text_normalize(prompt_text3, split=False, text_frontend=True))
         if cosyvoice.sample_rate == 24000:
             # cosyvoice2, force speech_feat % speech_token = 2
             token_len = min(int(speech_feat.shape[1] / 2), speech_token.shape[1])
             speech_feat, speech_feat_len[:] = speech_feat[:, :2 * token_len], 2 * token_len
             speech_token, speech_token_len[:] = speech_token[:, :token_len], token_len
         # 将音色embedding、语音特征和语音token保存到字典中
+        # spk2info[speaker] = {'embedding': embedding,
+        #                     'speech_feat': speech_feat, 
+        #                     'speech_feat_len': speech_feat_len,
+        #                     'speech_token': speech_token,
+        #                     'speech_token_len': speech_token_len,
+        #                     'prompt_token': prompt_token,
+        #                     'prompt_token_len': prompt_token_len,
+        #                     }
         spk2info[speaker] = {'embedding': embedding,
-                            'speech_feat': speech_feat, 
-                            'speech_feat_len': speech_feat_len,
-                            'speech_token': speech_token,
-                            'speech_token_len': speech_token_len,
-                            'prompt_token': prompt_token,
-                            'prompt_token_len': prompt_token_len,
-                            }
+                        'speech_feat': speech_feat, 
+                        'speech_feat_len': speech_feat_len,
+                        'speech_token': speech_token,
+                        'speech_token_len': speech_token_len,
+                        'prompt_token': prompt_token,
+                        'prompt_token_len': prompt_token_len,
+
+                        'llm_prompt_speech_token': speech_token, 
+                        'llm_prompt_speech_token_len': speech_token_len,
+                        'flow_prompt_speech_token':speech_token,
+                        'flow_prompt_speech_token_len':speech_token_len,
+                        'prompt_speech_feat': speech_feat, 
+                        'prompt_speech_feat_len': speech_feat_len,
+                        'llm_embedding': embedding, 
+                        'flow_embedding': embedding,
+                        'prompt_text': prompt_token,
+                        'prompt_text_len': prompt_token_len,}
         torch.save(spk2info, spk2info_path)
     print('Load time:', time.time()-start)
 
