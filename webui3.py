@@ -24,7 +24,7 @@ import random
 import librosa
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append('{}/third_party/Matcha-TTS'.format(ROOT_DIR))
-from cosyvoice.cli.cosyvoice import AutoModel
+from cosyvoice.cli.cosyvoice import CosyVoice3
 from cosyvoice.utils.file_utils import logging
 from cosyvoice.utils.common import set_all_random_seed
 from cosyvoice.utils.file_utils import load_wav
@@ -39,11 +39,12 @@ max_val = 0.8
 # 设置说话人名称
 speaker = '穗'
 # 设置说话人信息文件的路径
-model_path='pretrained_models/CosyVoice2-0.5B'
-# model_path='pretrained_models/Fun-CosyVoice3-0.5B'
+# model_path='pretrained_models/CosyVoice2-0.5B'
+model_path='pretrained_models/Fun-CosyVoice3-0.5B'
 spk2info_path = f'{model_path}/spk2info.pt'
 # 设置提示文本
 prompt_text = "我知道，那件事之后，良爷可能觉得有些事都是老天定的，人怎么做都没用，但我觉得不是这样的。"
+prompt_text3 = "You are a helpful assistant.<|endofprompt|>我知道，那件事之后，良爷可能觉得有些事都是老天定的，人怎么做都没用，但我觉得不是这样的。"
 
 # 定义一个文本到语音的函数，参数包括文本内容、是否流式处理、语速和是否使用文本前端处理
 def tts_sft(tts_text, speaker, stream=False, speed=1.0, text_frontend=True):
@@ -64,14 +65,25 @@ def tts_sft(tts_text, speaker, stream=False, speed=1.0, text_frontend=True):
         # 提取文本的token和长度
         tts_text_token, tts_text_token_len = cosyvoice.frontend._extract_text_token(i)
         # 构建模型输入字典，包括文本、文本长度、提示文本、提示文本长度、LLM提示语音token、LLM提示语音token长度、流提示语音token、流提示语音token长度、提示语音特征、提示语音特征长度、LLM嵌入和流嵌入
+        prompt_token = speaker_info.get('prompt_token')
+        prompt_token_len = speaker_info.get('prompt_token_len')
+        speech_token = speaker_info['speech_token']
+        speech_token_len = speaker_info['speech_token_len']
+        speech_feat = speaker_info['speech_feat']
+        speech_feat_len = speaker_info['speech_feat_len']
+        embedding = speaker_info['embedding']
         model_input = {'text': tts_text_token, 
                        'text_len': tts_text_token_len,
-                       'llm_prompt_speech_token': speaker_info['speech_token'], 
-                       'flow_prompt_speech_token':speaker_info['speech_token'],
-                       'prompt_speech_feat': speaker_info['speech_feat'], 
-                       'llm_embedding': speaker_info['embedding'], 
-                       'flow_embedding': speaker_info['embedding'],
-                       'prompt_text': speaker_info['prompt_token'],}
+                    #    'llm_prompt_speech_token': speech_token, 
+                    #    'llm_prompt_speech_token_len': speech_token_len,
+                       'flow_prompt_speech_token':speech_token,
+                       'flow_prompt_speech_token_len':speech_token_len,
+                       'prompt_speech_feat': speech_feat, 
+                       'prompt_speech_feat_len': speech_feat_len,
+                       'llm_embedding': embedding, 
+                       'flow_embedding': embedding,
+                       'prompt_text': prompt_token,
+                       'prompt_text_len': prompt_token_len,}
         
         # 使用模型进行文本到语音的转换，并迭代输出结果
         for model_output in cosyvoice.model.tts(**model_input, stream=stream, speed=speed):
@@ -142,7 +154,7 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
             for i in cosyvoice.inference_sft(tts_text, sft_dropdown, stream=stream, speed=speed):
                 yield (cosyvoice.sample_rate, i['tts_speech'].numpy().flatten())
         else:
-            for i in tts_sft(tts_text, sft_dropdown, stream=stream, speed=speed):
+            for i in cosyvoice.inference_instruct2(tts_text, '', '', sft_dropdown, stream=stream, speed=speed):
                 yield (cosyvoice.sample_rate, i['tts_speech'].numpy().flatten())
     elif mode_checkbox_group == '3s极速复刻':
         logging.info('get zero_shot inference request')
@@ -210,7 +222,8 @@ if __name__ == '__main__':
                         default=model_path,
                         help='local path or modelscope repo id')
     args = parser.parse_args()
-    cosyvoice = AutoModel(model_dir=args.model_dir)
+    cosyvoice = CosyVoice3(model_dir=args.model_dir)
+    print(cosyvoice.frontend.spk2info.keys())
 
     # 记录开始时间
     start = time.time()
@@ -227,10 +240,11 @@ if __name__ == '__main__':
         spk2info = {}
 
     # 想要重新生成当前说话人音频特征的取消以下注释
-    # if speaker in spk2info:
-    #    del spk2info[speaker]
+    if speaker in spk2info:
+       del spk2info[speaker]
 
     if speaker not in spk2info:
+        print('Extracting speaker information for {}...'.format(speaker))
         # 获取音色embedding
         embedding = cosyvoice.frontend._extract_spk_embedding(prompt_wav)
         # 获取语音特征
@@ -238,13 +252,23 @@ if __name__ == '__main__':
         # 获取语音token
         speech_token, speech_token_len = cosyvoice.frontend._extract_speech_token(prompt_wav)
         # 提取提示文本的token和长度
-        prompt_token, prompt_token_len = cosyvoice.frontend._extract_text_token(prompt_text)
+        # prompt_token, prompt_token_len = cosyvoice.frontend._extract_text_token(
+        #     cosyvoice.frontend.text_normalize(prompt_text3, split=False, text_frontend=True))
+        prompt_token, prompt_token_len = cosyvoice.frontend._extract_text_token("You are a helpful assistant.<|endofprompt|>")
+        if cosyvoice.sample_rate == 24000:
+            # cosyvoice2, force speech_feat % speech_token = 2
+            token_len = min(int(speech_feat.shape[1] / 2), speech_token.shape[1])
+            speech_feat, speech_feat_len[:] = speech_feat[:, :2 * token_len], 2 * token_len
+            speech_token, speech_token_len[:] = speech_token[:, :token_len], token_len
         # 将音色embedding、语音特征和语音token保存到字典中
         spk2info[speaker] = {'embedding': embedding,
                             'speech_feat': speech_feat, 
+                            'speech_feat_len': speech_feat_len,
                             'speech_token': speech_token,
-                            'prompt_token': prompt_token,}
-        # 保存音色embedding
+                            'speech_token_len': speech_token_len,
+                            'prompt_token': prompt_token,
+                            'prompt_token_len': prompt_token_len,
+                            }
         torch.save(spk2info, spk2info_path)
     print('Load time:', time.time()-start)
 
