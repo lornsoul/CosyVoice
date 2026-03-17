@@ -33,8 +33,9 @@ tensorboard==2.14.0
 tensorrt-cu12==10.13.3.9; sys_platform == 'linux'
 tensorrt-cu12-bindings==10.13.3.9; sys_platform == 'linux'
 tensorrt-cu12-libs==10.13.3.9; sys_platform == 'linux'
-torch==2.3.1
-torchaudio==2.3.1
+torch==2.10.0
+torchaudio==2.10.0
+torchcodec==0.10.0; sys_platform == 'darwin'
 transformers==4.51.3
 x-transformers==2.11.24
 uvicorn==0.30.0
