@@ -170,6 +170,34 @@ async def inference_instruct2_wav(
     return generate_wav_response(model_output)
 
 
+@app.get("/reload_spk2info")
+@app.post("/reload_spk2info")
+async def reload_spk2info():
+    spk2info_path = os.path.join(args.model_dir, "spk2info.pt")
+    if os.path.exists(spk2info_path):
+        try:
+            # torch.load parameters compatible with older formats and security warnings
+            cosyvoice.frontend.spk2info = torch.load(
+                spk2info_path, 
+                map_location=cosyvoice.frontend.device
+            )
+            return {
+                "status": "success", 
+                "message": "spk2info reloaded successfully.", 
+                "available_speakers": list(cosyvoice.frontend.spk2info.keys())
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Failed to load spk2info.pt: {str(e)}"
+            }
+    else:
+        return {
+            "status": "error", 
+            "message": f"File not found: {spk2info_path}"
+        }
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=50000)
