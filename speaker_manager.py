@@ -6,6 +6,50 @@ import torch
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append('{}/third_party/Matcha-TTS'.format(ROOT_DIR))
 
+def create_frontend(model_dir):
+    from hyperpyyaml import load_hyperpyyaml
+    from cosyvoice.cli.frontend import CosyVoiceFrontEnd
+
+    # 1. 侦测 CosyVoice 版本 (通过yaml文件)
+    if os.path.exists(os.path.join(model_dir, 'cosyvoice3.yaml')):
+        yaml_path = os.path.join(model_dir, 'cosyvoice3.yaml')
+        tokenizer_name = 'speech_tokenizer_v3.onnx'
+        version = 3
+    elif os.path.exists(os.path.join(model_dir, 'cosyvoice2.yaml')):
+        yaml_path = os.path.join(model_dir, 'cosyvoice2.yaml')
+        tokenizer_name = 'speech_tokenizer_v2.onnx'
+        version = 2
+    elif os.path.exists(os.path.join(model_dir, 'cosyvoice.yaml')):
+        yaml_path = os.path.join(model_dir, 'cosyvoice.yaml')
+        tokenizer_name = 'speech_tokenizer_v1.onnx'
+        version = 1
+    else:
+        raise ValueError(f"No valid cozyvoice yaml config found in {model_dir}")
+
+    # 2. 解析 configurations
+    with open(yaml_path, 'r') as f:
+        if version == 3:
+            configs = load_hyperpyyaml(f, overrides={'qwen_pretrain_path': os.path.join(model_dir, 'CosyVoice-BlankEN')})
+        else:
+            configs = load_hyperpyyaml(f)
+            
+    # 3. 实例化 FrontEnd
+    tokenizer_path = os.path.join(model_dir, tokenizer_name)
+    if not os.path.exists(tokenizer_path):
+        # 回退机制
+        tokenizer_path = tokenizer_path.replace('.onnx', '.pt') 
+
+    frontend = CosyVoiceFrontEnd(
+        configs['get_tokenizer'],
+        configs['feat_extractor'],
+        os.path.join(model_dir, 'campplus.onnx'),
+        tokenizer_path,
+        os.path.join(model_dir, 'spk2info.pt'),
+        configs.get('allowed_special', 'all')
+    )
+    
+    return frontend, configs['sample_rate']
+
 
 def load_spk2info(spk2info_path, device='cpu'):
     if os.path.exists(spk2info_path):
@@ -43,12 +87,11 @@ def remove_speaker(args):
 def add_speaker(args):
     spk2info_path = os.path.join(args.model_dir, 'spk2info.pt')
 
-    # Load model only when adding
-    print(f"Loading CosyVoice3 model from {args.model_dir}...")
-    from cosyvoice.cli.cosyvoice import CosyVoice3
-    cosyvoice = CosyVoice3(model_dir=args.model_dir)
+    # Load frontend only
+    print(f"Loading CosyVoice Frontend from {args.model_dir}...")
+    frontend, sample_rate = create_frontend(args.model_dir)
 
-    spk2info = load_spk2info(spk2info_path, device=cosyvoice.frontend.device)
+    spk2info = load_spk2info(spk2info_path, device=frontend.device)
 
     speaker = args.name
     print(f"Extracting speaker information for {speaker}...")
@@ -60,13 +103,13 @@ def add_speaker(args):
         print(f"Error: Prompt wav file '{prompt_wav}' not found.")
         return
 
-    embedding = cosyvoice.frontend._extract_spk_embedding(prompt_wav)
-    speech_feat, speech_feat_len = cosyvoice.frontend._extract_speech_feat(prompt_wav)
-    speech_token, speech_token_len = cosyvoice.frontend._extract_speech_token(prompt_wav)
-    prompt_token, prompt_token_len = cosyvoice.frontend._extract_text_token(
-        cosyvoice.frontend.text_normalize(prompt_text, split=False, text_frontend=True))
+    embedding = frontend._extract_spk_embedding(prompt_wav)
+    speech_feat, speech_feat_len = frontend._extract_speech_feat(prompt_wav)
+    speech_token, speech_token_len = frontend._extract_speech_token(prompt_wav)
+    prompt_token, prompt_token_len = frontend._extract_text_token(
+        frontend.text_normalize(prompt_text, split=False, text_frontend=True))
 
-    if cosyvoice.sample_rate == 24000:
+    if sample_rate == 24000:
         # cosyvoice2, force speech_feat % speech_token = 2
         token_len = min(int(speech_feat.shape[1] / 2), speech_token.shape[1])
         speech_feat, speech_feat_len[:] = speech_feat[:, :2 * token_len], 2 * token_len
