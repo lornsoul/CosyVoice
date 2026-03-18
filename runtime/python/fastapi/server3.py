@@ -65,38 +65,6 @@ def generate_wav_response(model_output):
         headers={"Content-Disposition": 'attachment; filename="audio.wav"'},
     )
 
-# 定义一个文本到语音的函数，参数包括文本内容、是否流式处理、语速和是否使用文本前端处理
-def tts_sft(tts_text, speaker, stream=False, speed=1.0, text_frontend=True):
-    '''
-    参数：
-        tts_text：要合成的文本
-        speaker：说话人音频特征
-        stream：是否流式处理
-        speed：语速
-        text_frontend：是否使用文本前端处理
-
-    返回值：
-        合成后的音频
-    '''
-    speaker_info = cosyvoice.frontend.spk2info[speaker]
-    # 使用tqdm库来显示进度条，对文本进行标准化处理并分割
-    for i in tqdm(cosyvoice.frontend.text_normalize(tts_text, split=True, text_frontend=text_frontend)):
-        # 提取文本的token和长度
-        tts_text_token, tts_text_token_len = cosyvoice.frontend._extract_text_token(i)
-        # 构建模型输入字典，包括文本、文本长度、提示文本、提示文本长度、LLM提示语音token、LLM提示语音token长度、流提示语音token、流提示语音token长度、提示语音特征、提示语音特征长度、LLM嵌入和流嵌入
-        model_input = {'text': tts_text_token, 
-                       'text_len': tts_text_token_len,
-                       'llm_prompt_speech_token': speaker_info['speech_token'], 
-                       'flow_prompt_speech_token':speaker_info['speech_token'],
-                       'prompt_speech_feat': speaker_info['speech_feat'], 
-                       'llm_embedding': speaker_info['embedding'], 
-                       'flow_embedding': speaker_info['embedding'],
-                       'prompt_text': speaker_info['prompt_token'],}
-        
-        # 使用模型进行文本到语音的转换，并迭代输出结果
-        for model_output in cosyvoice.model.tts(**model_input, stream=stream, speed=speed):
-            yield model_output
-
 @app.get("/inference_sft")
 @app.post("/inference_sft")
 async def inference_sft(tts_text: str = Form(), spk_id: str = Form()):
@@ -154,10 +122,9 @@ async def inference_cross_lingual(
 @app.get("/inference_cross_lingual_wav")
 @app.post("/inference_cross_lingual_wav")
 async def inference_cross_lingual_wav(
-    tts_text: str = Form(), prompt_wav: UploadFile = File()
+    tts_text: str = Form(), spk_id: str = Form()
 ):
-    prompt_speech_16k = load_wav(prompt_wav.file, 16000)
-    model_output = cosyvoice.inference_cross_lingual(tts_text, prompt_speech_16k)
+    model_output = cosyvoice.inference_cross_lingual('You are a helpful assistant.<|endofprompt|>' + tts_text, '', spk_id)
     return generate_wav_response(model_output)
 
 

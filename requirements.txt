@@ -39,5 +39,5 @@ torchcodec==0.10.0; sys_platform == 'darwin'
 transformers==4.51.3
 x-transformers==2.11.24
 uvicorn==0.30.0
-wetext==0.0.4
+wetext==0.0.9
 wget==3.2
