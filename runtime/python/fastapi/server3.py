@@ -54,11 +54,13 @@ def generate_wav_response(model_output):
     tts_audio = b""
     for i in model_output:
         tts_audio += (i["tts_speech"].numpy() * (2**15)).astype(np.int16).tobytes()
-    tts_speech = torch.from_numpy(
-        np.array(np.frombuffer(tts_audio, dtype=np.int16))
-    ).unsqueeze(dim=0)
+    import wave
     buffer = io.BytesIO()
-    torchaudio.save(buffer, tts_speech, 22050, format="wav")
+    with wave.open(buffer, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(22050)
+        wf.writeframes(tts_audio)
     return Response(
         content=buffer.getvalue(),
         media_type="audio/wav",
@@ -208,6 +210,6 @@ if __name__ == "__main__":
         help="local path or modelscope repo id",
     )
     args = parser.parse_args()
-    cosyvoice = CosyVoice3(model_dir=args.model_dir, load_trt=True, fp16=True)
+    cosyvoice = CosyVoice3(model_dir=args.model_dir)
     print('Available speakers:', cosyvoice.frontend.spk2info.keys())
     uvicorn.run(app, host="0.0.0.0", port=args.port)
