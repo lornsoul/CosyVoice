@@ -15,9 +15,9 @@ import os
 import sys
 import time
 import argparse
+import torch
 import gradio as gr
 import numpy as np
-import torch
 import torchaudio
 from tqdm import tqdm
 import random
